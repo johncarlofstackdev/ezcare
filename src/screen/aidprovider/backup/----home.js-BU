@@ -1,0 +1,462 @@
+import React, { useEffect, useState, useCallback } from "react"
+import MaterialIcons from "react-native-vector-icons/MaterialIcons"
+import FontAwesome5 from "react-native-vector-icons/FontAwesome5"
+
+import { View, StyleSheet, Dimensions } from 'react-native';
+
+import {
+  Box, Text, Heading, HStack, Center, NativeBaseProvider, Avatar, Spinner, Actionsheet, Button
+} from "native-base"
+
+import { ref, set, update, onValue, remove } from "firebase/database"
+
+// import Geolocation from '@react-native-community/geolocation'
+import Geolocation from 'react-native-geolocation-service';
+
+import MapView, { PROVIDER_GOOGLE, enableLatestRenderer, Marker } from 'react-native-maps'
+
+import { auth, db, storage } from "../../../config"
+
+import Loader from 'react-native-spinkit'
+
+enableLatestRenderer()
+
+const API_KEY = 'AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts'
+
+const Logout = () => {
+  auth.signOut().then(() => {
+  }).catch(error => alert(error.message))
+}
+
+const getFileUrl = async (fileRef) => {
+  try {
+    const url = await storage.ref().child(fileRef).getDownloadURL();
+    return url;
+  } catch (err) {
+    console.log('Error getting download URL: ', err);
+  }
+}
+
+const fetchAddress = async (latitude, longitude) => {
+  const endpoint = `https://maps.googleapis.com/maps/api/geocode/json?latlng`
+  const API_KEY = 'AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts'
+  try {
+    const response = await fetch(`${endpoint}=${latitude},${longitude}&key=${API_KEY}`)
+    const data = await response.json()
+    return data.results[0].formatted_address
+  } catch (e) {
+    console.log(e)
+  }
+}
+
+const HELP_ = require('./img/help_aid_seeker_(200_x_200).png')
+const PROVIDER_ = require('./img/aid_provider_map_pointer(80_x_80).png')
+
+const Home = ({ navigation }) => {
+  const [userData, setUserData] = useState({})
+  const [checkData, setCheckData] = useState(true)
+  const [position, positionSet] = useState({})
+
+  const [profile, profileSet] = useState('')
+
+  const [listHelp, listHelpSet] = useState({})
+
+  const [initital, inititalSet] = useState({})
+
+  const [actionSeet, actionSeetSet] = useState(false)
+
+  const { width, height } = Dimensions.get("window")
+
+  const [incidentInfo, incedentInfoSet] = useState({})
+  const [incedentInfoAdd, incedentInfoAddSet] = useState('')
+
+
+  const [userUID, userUIDset] = useState('')
+  const [evetCode, evetCodeSet] = useState('')
+
+  const [respondRequest, respondRequestSet] = useState(false)
+
+  const optionsGeo = { enableHighAccuracy: true, timeout: 30000, maximumAge: 1000 };
+
+  useEffect(() => {
+    const successHandler = (position) => {
+      const ASPECT_RATIO = width / height;
+      const LATITUDE_DELTA = 0.02;
+      const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
+      const INITIAL_POSITION = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        latitudeDelta: LATITUDE_DELTA,
+        longitudeDelta: LONGITUDE_DELTA
+      };
+      inititalSet(INITIAL_POSITION);
+    };
+
+    const errorHandler = (error) => {
+      console.error(error);
+    };
+
+    Geolocation.getCurrentPosition(successHandler, errorHandler, optionsGeo);
+  }, []);
+
+  //Handle user state changes
+  const onAuthStateChanged = async (user) => {
+    // if (user) {
+    //   try {
+    //     const snapshot = await db.ref(`aid_provider/${user.uid}`).once('value');
+    //     const userDataInfo = snapshot.val();
+
+    //     // Update latitude and longitude values
+    //     if(initital.latitude !== undefined){
+    //       await db.ref(`aid_provider/${user.uid}`).update({
+    //         latitude: initital.latitude,
+    //         longitude: initital.longitude
+    //       })
+    //     }
+
+    //     setUserData(userDataInfo)
+    //     // setUserData(userDataInfo);
+
+    //     if (!userDataInfo.profile) {
+    //       const urlPath = await getFileUrl('profile/index.jpg');
+    //       profileSet(urlPath);
+    //       setCheckData(false);
+    //     }
+    //   } catch (error) {
+    //     console.error(error.message);
+    //   }
+    // }
+    if (user) {
+
+      // check if already helped someone that are not yet end : START
+      const refHelped = 'incedent/'
+      const rootRefHelped = db.ref(refHelped)
+      const queryRefHelped = rootRefHelped.orderByChild('status').equalTo(2);
+      queryRefHelped.on('value', snap => {
+        if (snap.exists()) {
+          const refHelped2 = 'incedent/'
+          const rootRefHelped2 = db.ref(refHelped2)
+          const queryRefHelped2 = rootRefHelped2.orderByChild('aid_provider_id').equalTo(user.uid);
+          queryRefHelped2.on('value', snap => {
+            if (snap.exists()) {
+              navigation.navigate('Eventaidprovider', { event_id: Object.keys(snap.val())[0] })
+            }
+          })
+        }
+      })
+      // check if already helped someone that are not yet end : END
+
+      userUIDset(user.uid)
+
+      const ref = 'aid_provider/' + user.uid + '/'
+      const rootRef = db.ref(ref)
+      rootRef.on('value', snap => {
+        if (snap.exists()) {
+          const userDataInfo = snap.val()
+          setUserData(userDataInfo)
+          if (userDataInfo.profile) {
+
+          } else {
+            getFileUrl('profile/index.jpg').then(urlPath => {
+              profileSet(urlPath)
+              setCheckData(false)
+            })
+          }
+        }
+      })
+    }
+  }
+
+  // const getAddressFromLatLng = (latitude, longitude) => {
+  //   const API_KEY = 'AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts'
+  //   fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${API_KEY}`)
+  //     .then(response => response.json())
+  //     .then(data => currentLocationSet(data.results[0].formatted_address))
+  //     .catch(error => console.error(error));
+  // }
+
+  // https://maps.googleapis.com/maps/api/js?key=AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts&callback=initMap&libraries=places
+
+  useEffect(() => {
+    const subscriber = auth.onAuthStateChanged(onAuthStateChanged)
+    return subscriber
+  }, [initital])
+
+
+  const viewHEP_ = useCallback((event) => {
+    const EVENT_CODE = event.nativeEvent.id;
+    evetCodeSet(EVENT_CODE)
+    actionSeetSet(true)
+    const ref = `incedent/${EVENT_CODE}/`
+    rootRef = db.ref(ref)
+    rootRef.once('value', snap => {
+      const infoIncedent = snap.val()
+      const refUser = `aid_seeker/${infoIncedent.aid_seeker_id}/`
+      rootRefUser = db.ref(refUser)
+      rootRefUser.once('value', snap => {
+        const userInfo = snap.val()
+        infoIncedent['fullname'] = userInfo.fullname
+      })
+      fetchAddress(infoIncedent.location.latitude, infoIncedent.location.longitude).then((response) => incedentInfoAddSet(response))
+      infoIncedent['time_left'] = getTimepast(infoIncedent.date_requested)
+      incedentInfoSet(infoIncedent)
+    })
+  }, [respondRequest])
+
+  const closeHELP_ = useCallback((event) => {
+    actionSeetSet(false)
+  }, [])
+
+  const getMilitaryTime = () => {
+    const date = new Date();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+
+  const getTimepast = (time) => {
+    let timeLeft = 0
+    const splitDateTime = time.split(" ")
+    const splitTime = splitDateTime[1].split(":")
+    const date = new Date();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const checkHour = hours - splitTime[0]
+    const checkMin = minutes - splitTime[1]
+    if (checkHour === 0) {
+      timeLeft = checkMin + ' mins ago'
+    } else if (checkHour === 1) {
+      timeLeft = checkHour + ' hour ago'
+    } else {
+      timeLeft = checkHour + ' hours ago'
+    }
+    return timeLeft
+  }
+
+  const responTo = () => {
+    respondRequestSet(true)
+    const updates = { 'aid_provider_id': userUID, 'status': 2 }
+    setTimeout(() => {
+      db.ref(`incedent/${evetCode}`).update(updates).then(() => {
+        console.log("Success : AHAHAH");
+      }).catch((error) => {
+        console.log("Error updating information:", error);
+      })
+    }, 1000)
+  }
+
+  useEffect(() => {
+    const ref = 'incedent/'
+    const rootRef = db.ref(ref)
+    const PeopleAskingHelp = async () => {
+      const queryRef = rootRef.orderByChild('status').equalTo(1);
+      await queryRef.on('value', snap => {
+        if (snap.exists()) {
+          listHelpSet(snap.val())
+        } else {
+          listHelpSet({})
+        }
+      })
+    }
+    PeopleAskingHelp()
+  }, [db])
+
+  if (checkData || Object.keys(initital).length === 0) {
+    return (
+      <NativeBaseProvider>
+        <Center flex={1} px="3" bg="muted.50">
+          <Center w="100%">
+            <HStack space={2} justifyContent="center">
+              <Loader isVisible={true} size={Dimensions.get("window").width - 360} type='ThreeBounce' color='#f63b3b' />
+            </HStack>
+          </Center>
+        </Center>
+      </NativeBaseProvider >
+    )
+  }
+
+  return (
+    <NativeBaseProvider>
+      <MapView style={styles.map} provider={PROVIDER_GOOGLE} region={initital}>
+        <Marker
+          coordinate={{ latitude: initital.latitude, longitude: initital.longitude }}
+          image={PROVIDER_}
+        />
+        {Object.keys(listHelp).length === 0 ? ''
+          : (
+            Object.keys(listHelp).map((keyName, i) => (
+              < Marker
+                coordinate={{ latitude: listHelp[keyName].location.latitude, longitude: listHelp[keyName].location.longitude }}
+                image={HELP_}
+                identifier={keyName}
+                onPress={viewHEP_}
+                key={i}
+              />
+            ))
+          )
+        }
+      </MapView>
+      <Box style={styles.container} bg="white" shadow={2}>
+        <HStack space={2} alignItems="center">
+          <Avatar
+            bg="white"
+            size="lg"
+            source={{
+              uri: profile
+            }}
+            style={{ borderWidth: 4, borderColor: '#f63b3b', padding: 3 }}
+          >
+            {userData.fullname}
+          </Avatar>
+          <Box>
+            <Heading
+              mt="1"
+              ml="3"
+              fontWeight="900"
+              fontSize={20}
+            >
+              {userData.fullname}
+            </Heading>
+            <Heading
+              ml="3"
+              fontWeight="medium"
+              size="sm"
+              color="coolGray.600"
+            >
+              ID: {userData.code}
+            </Heading>
+          </Box>
+          <HStack space={3} alignItems="center" ml="auto">
+            <Box>
+              <MaterialIcons name="notifications" size={33} color="#f63b3b" />
+            </Box>
+            <Box>
+              <MaterialIcons name="logout" size={33} color="#f63b3b" onPress={Logout} />
+            </Box>
+          </HStack>
+        </HStack>
+      </Box>
+      <Box style={styles.containerBottom}>
+        <HStack space={2}>
+          <Box bg="white" shadow={2} style={styles.containerRightBottom}>
+            <HStack space={2} alignItems="center">
+              <Box>
+                <FontAwesome5 name="hands-helping" size={25} color="#f63b3b" />
+              </Box>
+              <Box>
+                <Text
+                  ml="3"
+                  fontWeight="medium"
+                  style={{ fontSize: 18 }}
+                  color="coolGray.600"
+                >
+                  Respond to distress signals.
+                </Text>
+              </Box>
+            </HStack>
+          </Box>
+          <Box bg="white" shadow={2} style={styles.containerLeftBottom}>
+            <Box style={{ display: 'flex', justifyContent: 'center', height: '100%' }}>
+              <FontAwesome5 name="exclamation-triangle" size={25} color="#f63b3b" />
+            </Box>
+          </Box>
+        </HStack>
+      </Box>
+      {/* <Actionsheet isOpen={actionSeet} onClose={closeHELP_}>
+        <Actionsheet.Content>
+          <Box w="100%" px={4} mb="3" justifyContent="center">
+            <Text fontSize="16" color="coolGray.600">
+              Request Information
+            </Text>
+          </Box>
+          <HStack w="100%" p="2" pt="0" direction="column" space={4}>
+            <HStack alignItems="center" space={3}>
+              <Box w="9" alignItems="center">
+                <MaterialIcons name="info" size={28} color="#f63b3b" />
+              </Box>
+              <Box>
+                <Text color="coolGray.600" style={{ fontSize: 13 }}>
+                  DISTRESS INFORMATION
+                </Text>
+                <Heading
+                  fontWeight="900"
+                  fontSize={17}
+                >
+                  {incidentInfo.fullname} - Distress #{incidentInfo.incedent_code}
+                </Heading>
+              </Box>
+            </HStack>
+            <HStack alignItems="center" space={3}>
+              <Box w="9" alignItems="center">
+                <FontAwesome5 name="map-marker-alt" size={27} color="#f63b3b" />
+              </Box>
+              <Box>
+                <Text color="coolGray.600" style={{ fontSize: 13 }}>
+                  LOCATION
+                </Text>
+                <Heading
+                  fontWeight="900"
+                  fontSize={17}
+                >
+                  {incedentInfoAdd}
+                </Heading>
+              </Box>
+            </HStack>
+            <HStack alignItems="center" space={3}>
+              <Box w="9" alignItems="center">
+                <FontAwesome5 name="clock" size={27} color="#f63b3b" />
+              </Box>
+              <Box>
+                <Text color="coolGray.600" style={{ fontSize: 13 }}>
+                  TIME
+                </Text>
+                <Heading
+                  fontWeight="900"
+                  fontSize={17}
+                >
+                  {incidentInfo.time_left}
+                </Heading>
+              </Box>
+            </HStack>
+          </HStack>
+          <Box p="3" pt="5" w="100%">
+            <Button h="50" colorScheme="secondary" size="sm" onPress={responTo}>
+              RESPOND TO REQUEST
+            </Button>
+          </Box>
+        </Actionsheet.Content >
+      </Actionsheet > */}
+    </NativeBaseProvider >
+  );
+}
+
+const styles = StyleSheet.create({
+  map: {
+    width: Dimensions.get("window").width,
+    height: Dimensions.get("window").height,
+  }, container: {
+    position: 'absolute',
+    top: 30,
+    left: 30,
+    right: 30,
+    padding: 20,
+    borderRadius: 10
+  },
+  containerBottom: {
+    position: 'absolute',
+    bottom: 30,
+    left: 30,
+    right: 30
+  },
+  containerLeftBottom: {
+    padding: 20,
+    borderRadius: 10
+  },
+  containerRightBottom: {
+    padding: 20,
+    borderRadius: 10,
+    width: Dimensions.get("window").width - 139
+  }
+});
+
+export default Home;

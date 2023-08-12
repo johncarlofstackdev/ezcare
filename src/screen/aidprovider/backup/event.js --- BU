@@ -1,0 +1,338 @@
+import React, { useEffect, useState, useCallback, useRef } from "react"
+import MaterialIcons from "react-native-vector-icons/MaterialIcons"
+import FontAwesome5 from "react-native-vector-icons/FontAwesome5"
+import { useRoute } from '@react-navigation/native';
+
+import { View, StyleSheet, Dimensions } from 'react-native';
+
+import {
+    Box, Text, Heading, HStack, Center, NativeBaseProvider, Avatar, Spinner, Actionsheet, Button, Spacer
+} from "native-base"
+
+import { ref, set, update, onValue, remove } from "firebase/database"
+
+import Loader from 'react-native-spinkit'
+
+// import Geolocation from '@react-native-community/geolocation'
+import Geolocation from 'react-native-geolocation-service'
+import MapView, { PROVIDER_GOOGLE, enableLatestRenderer, Marker } from 'react-native-maps'
+import MapViewDirections from 'react-native-maps-directions'
+import haversine from 'haversine';
+import moment from 'moment';
+
+import { auth, db, storage } from "../../../config"
+import { Icons } from "../../components/mapusersicons";
+
+enableLatestRenderer()
+
+const API_KEY = 'AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts'
+
+// const getFileUrl = async (fileRef) => {
+//     try {
+//         const url = await storage.ref().child(fileRef).getDownloadURL();
+//         return url;
+//     } catch (err) {
+//         console.log('Error getting download URL: ', err);
+//     }
+// }
+
+// const fetchAddress = async (latitude, longitude) => {
+//     const endpoint = `https://maps.googleapis.com/maps/api/geocode/json?latlng`
+//     const API_KEY = 'AIzaSyBg9J9ixxZ9Y6Gawijfw52i_EM801DHgts'
+//     try {
+//         const response = await fetch(`${endpoint}=${latitude},${longitude}&key=${API_KEY}`)
+//         const data = await response.json()
+//         return data.results[0].formatted_address
+//     } catch (e) {
+//         console.log(e)
+//     }
+// }
+
+function areObjectsEqual(obj1, obj2) {
+    // Get the keys of each object
+    const obj1Keys = Object.keys(obj1);
+    const obj2Keys = Object.keys(obj2);
+
+    // If the number of keys is different, the objects are not equal
+    if (obj1Keys.length !== obj2Keys.length) {
+        return false;
+    }
+
+    // Iterate through the keys of obj1
+    for (let i = 0; i < obj1Keys.length; i++) {
+        const key = obj1Keys[i];
+
+        // If the key doesn't exist in obj2 or the values are different, the objects are not equal
+        if (!obj2.hasOwnProperty(key) || obj1[key] !== obj2[key]) {
+            return false;
+        }
+    }
+
+    // All keys and values are equal, so the objects are equal
+    return true;
+}
+
+// const HELP_ = require('./img/help_aid_seeker_(200_x_200).png')
+// const PROVIDER_ = require('./img/aid_provider_map_pointer(80_x_80).png')
+
+const Event = ({ navigation }) => {
+    const [initital, inititalSet] = useState({})
+    const [checkData, setCheckData] = useState(true)
+    const [profile, profileSet] = useState('')
+    const [proViderData, proViderDataSet] = useState({})
+
+    const [distanceTime, distanceTimeSet] = useState({})
+
+    const { width, height } = Dimensions.get("window")
+    const route = useRoute();
+
+    const [bothLocation, bothLocationSet] = useState(true)
+
+    const optionsGeo = { enableHighAccuracy: true, timeout: 30000, maximumAge: 1000 }
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const successHandler = (position) => {
+                const ASPECT_RATIO = width / height;
+                const LATITUDE_DELTA = 0.02;
+                const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
+                const INITIAL_POSITION = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    latitudeDelta: LATITUDE_DELTA,
+                    longitudeDelta: LONGITUDE_DELTA
+                }
+
+                inititalSet(INITIAL_POSITION);
+            }
+
+            const errorHandler = (error) => {
+                console.error(error);
+            }
+
+            Geolocation.getCurrentPosition(successHandler, errorHandler, optionsGeo);
+        }, 5000)
+        return () => clearInterval(interval)
+    }, [])
+
+    useEffect(() => {
+
+        db.ref(`incedent/${route.params.event_id}/bothLocations/aid_provider`).update(initital).then(() => {
+
+            const ref = `incedent/${route.params.event_id}`
+            const rootRef = db.ref(ref)
+            const PeopleAskingHelp = async () => {
+                await rootRef.on('value', snap => {
+                    const listHelpInfo = snap.val()
+                    if (listHelpInfo.bothLocations["aid_seeker"] !== "") {
+                        bothLocationSet(listHelpInfo)
+                        db.ref(`aid_provider/${listHelpInfo.aid_provider_id}`).on('value', snap => {
+                            const aidProviderInfo = snap.val()
+                            proViderDataSet(aidProviderInfo)
+
+                            const pointA = { latitude: listHelpInfo.bothLocations["aid_provider"].latitude, longitude: listHelpInfo.bothLocations["aid_provider"].longitude };
+                            const pointB = { latitude: listHelpInfo.bothLocations["aid_seeker"].latitude, longitude: listHelpInfo.bothLocations["aid_seeker"].longitude };
+
+                            if (areObjectsEqual(pointA, pointB)) {
+                                const updatestats = { status: 3 }
+                                db.ref(`incedent/${route.params.event_id}`).update(updatestats)
+                                navigation.navigate('Homeaidprovider')
+                            }
+
+                            const distance = haversine(pointA, pointB, { unit: 'mile' });
+                            const time = distance / 60;
+                            const miles = distance;
+                            const meters = miles * 1609.344;
+
+                            const timeHelpConvert = listHelpInfo.date_requested.split(" ")
+
+                            const distTime = {
+                                time: time,
+                                distance: meters.toFixed(2),
+                                timeAskHelp: moment(timeHelpConvert[1], 'HH:mm').format('h:mm A')
+                            }
+
+                            distanceTimeSet(distTime)
+
+                            if (aidProviderInfo.profile) {
+
+                            } else {
+                                getFileUrl('profile/index.jpg').then(urlPath => {
+                                    profileSet(urlPath)
+                                    setCheckData(false)
+                                })
+                            }
+                        })
+                    }
+                })
+            }
+
+            PeopleAskingHelp()
+
+        }).catch((error) => {
+            console.log("Error updating information:", error)
+        })
+
+    }, [initital])
+
+    if (checkData || Object.keys(initital).length === 0 || profile === '') {
+        return (
+            <NativeBaseProvider>
+                <Center flex={1} px="3" bg="muted.50">
+                    <Center w="100%">
+                        <HStack space={2} justifyContent="center">
+                            <Loader isVisible={true} size={Dimensions.get("window").width - 360} type='ThreeBounce' color='#db2777' />
+                        </HStack>
+                    </Center>
+                </Center>
+            </NativeBaseProvider >
+        )
+    }
+
+    return (
+        <NativeBaseProvider>
+            <MapView style={styles.map} provider={PROVIDER_GOOGLE} region={initital}>
+                <Marker
+                    coordinate={bothLocation.bothLocations["aid_seeker"]}
+                    image={Icons.help}
+                />
+                <Marker
+                    coordinate={bothLocation.bothLocations["aid_provider"]}
+                    image={Icons.provider}
+                />
+                {/* <Marker
+                    coordinate={{ latitude: 37.424313926672625, longitude: -122.08175171712718 }}
+                    image={HELP_}
+                />
+                <Marker
+                    coordinate={{ latitude: initital.latitude, longitude: initital.longitude }}
+                    image={PROVIDER_}
+                />
+                <MapViewDirections
+                    origin={{ latitude: 37.424313926672625, longitude: -122.08175171712718 }}
+                    destination={{ latitude: 37.421998333333335, longitude: -122.084 }}
+                    apikey={API_KEY}
+                    strokeWidth={10}
+                    strokeColor="black"
+                /> */}
+
+                <MapViewDirections
+                    origin={bothLocation.bothLocations["aid_provider"]}
+                    destination={bothLocation.bothLocations["aid_seeker"]}
+                    apikey={API_KEY}
+                    strokeWidth={10}
+                    strokeColor="#be185d"
+                />
+            </MapView>
+            <Box style={styles.containerBottom} bg="white" p="5" shadow={2}>
+                <HStack space={1} alignItems="center">
+                    <Avatar
+                        bg="white"
+                        size="lg"
+                        source={{
+                            uri: profile
+                        }}
+                        style={{ borderWidth: 4, borderColor: '#be185d', padding: 3 }}
+                    >
+                        {proViderData.fullname}
+                    </Avatar>
+                    <Box>
+                        <Heading
+                            mt="1"
+                            ml="3"
+                            fontWeight="900"
+                            fontSize={20}
+                        >
+                            {proViderData.fullname}
+                        </Heading>
+                        <Heading
+                            ml="3"
+                            fontWeight="medium"
+                            size="sm"
+                            color="coolGray.600"
+                        >
+                            ID: {proViderData.code}
+                        </Heading>
+                    </Box>
+                    <HStack space={3} alignItems="center" ml="auto">
+                        <Box>
+                            <Text
+                                fontWeight="medium"
+                                style={{ fontSize: 15 }}
+                                color="coolGray.600"
+                                textAlign="right"
+                            >
+                                Today
+                            </Text>
+                            <Text
+                                fontWeight="medium"
+                                style={{ fontSize: 16 }}
+                            >
+                                {distanceTime.timeAskHelp}
+                            </Text>
+                        </Box>
+                    </HStack>
+                </HStack>
+                <Box>
+                    <Text
+                        fontWeight="medium"
+                        style={{ fontSize: 15 }}
+                        color="coolGray.600"
+                        mt="3"
+                    >
+                        Estimate Time
+                    </Text>
+                    <Text
+                        fontWeight="medium"
+                        style={{ fontSize: 19 }}
+                        mt="1"
+                    >
+                        {distanceTime.time} mins / {distanceTime.distance} m
+                    </Text>
+                </Box>
+                <Box textAlign="right">
+                    <HStack space={2}>
+                        <Spacer />
+                        <Button size="md" bg="secondary.700">
+                            <FontAwesome5 name="ambulance" size={27} color="#fefefe" />
+                        </Button>
+                        <Button size="md" bg="tertiary.400">
+                            <FontAwesome5 name="phone" size={27} color="#fefefe" />
+                        </Button>
+                    </HStack>
+                </Box>
+            </Box>
+        </NativeBaseProvider >
+    );
+}
+
+const styles = StyleSheet.create({
+    map: {
+        width: Dimensions.get("window").width,
+        height: Dimensions.get("window").height,
+    }, container: {
+        position: 'absolute',
+        top: 30,
+        left: 30,
+        right: 30,
+        padding: 20,
+        borderRadius: 10
+    },
+    containerBottom: {
+        position: 'absolute',
+        bottom: 30,
+        left: 30,
+        right: 30,
+        borderRadius: 30
+    },
+    containerLeftBottom: {
+        padding: 20,
+        borderRadius: 10
+    },
+    containerRightBottom: {
+        padding: 20,
+        borderRadius: 10
+    }
+});
+
+export default Event;
